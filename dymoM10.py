@@ -33,6 +33,19 @@ class WeighingScale:
         self.deviceInitialized = deviceInitialized
         self.mass = None
 
+        self.namespacePubber = None
+        self.massPubber = None
+        self.isReadyPubber = None
+
+    def initNamespacePubber(self):
+        self.namespacePubber = rospy.Publisher("namespace", string, queue_size=1)
+
+    def initOtherPubbers(self):
+        topic = self.ns + "/mass"
+        self.massPubber = rospy.Publisher(topic, Float64, queue_size=10)
+        topic = self.ns + "/is_ready"
+        self.isReadyPubber = rospy.Publisher(topic, Bool, queue_size=1)
+
     # bool return on whether device has been found via getDevice()
     def getDeviceFound(self):
         return self.deviceFound
@@ -133,7 +146,8 @@ class WeighingScale:
 
         return mass
 
-    
+    def initPubbers(self):
+        topic = self.ns + "/namespace"
 
     def publishMass(self):
         dataPublisher = rospy.Publisher("mass", Float64, queue_size=10)

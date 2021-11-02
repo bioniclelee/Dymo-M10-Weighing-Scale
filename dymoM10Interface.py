@@ -11,7 +11,7 @@ weighing scale and provides additional functions.
 
 import math
 import rospy
-from std_msgs.msg import Float64, Bool
+from std_msgs.msg import Float64, Bool, String
 
 class WeighingScaleInterface:
 
@@ -44,8 +44,10 @@ class WeighingScaleInterface:
         self.weightChangePubber = None
 
         self.initMovingAverageMassSubber()
+        self.initNamespaceSubber()
+        self.initPubbers()
 
-    def initPubber(self):
+    def initPubbers(self):
         topic = self.ns + "/movingAverageMass"
         self.movingAverageMassPubber = rospy.Publisher(topic, Float64, queue_size=10)
         topic = self.ns + "/staticAverageMass"
@@ -53,11 +55,20 @@ class WeighingScaleInterface:
         topic = self.ns + "/weight_changed"
         self.weightChangePubber = rospy.Publisher(topic, Bool, queue_size=1)
 
+    def initNamespaceSubber(self, topic = "namespace"):
+        self.namespaceSubber = rospy.Subscriber(topic, String,
+                                                self.updateNameSpace,
+                                                callback_args = self)
+
+    def updateNamespace(msg, self):
+        self.ns = msg.data
+        rospy.loginfo("Namespace updated as {}".format(self.ns))
+
     def initMovingAverageMassSubber(self, topic = "/movingAverageMass"):
         topic += self.ns
         self.movingAverageMassSubber = rospy.Subscriber(topic, Float64,
-                                                self.updateMovingAverageMassArr,
-                                                callback_args = self)
+                                                        self.updateMovingAverageMassArr,
+                                                        callback_args = self)
 
     def updateMovingAverageMassArr(msg, self):
         if self.movingAverageMassArrSize == (len(self.movingAverageMassArr)):
