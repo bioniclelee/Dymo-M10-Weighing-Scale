@@ -12,12 +12,14 @@ weighing scale and provides additional functions.
 import math
 import rospy
 from std_msgs.msg import Float64, Bool, String
+import sys
 
 class WeighingScaleInterface:
 
     def __init__(self, ns, staticAverageMassArrSize = 10, movingAverageMassArrSize = 10):
         self.ns = ns
         self.isReady = False
+        self.isReadySubber = None
         
         self.staticAverageMassSubber = None
         # self.staticAverageWeightChanged = False
@@ -40,12 +42,17 @@ class WeighingScaleInterface:
         self.weightChanged = False
 
         self.movingAverageMassPubber = None
-        self.staticAverageMasspubber = None
+        self.staticAverageMassPubber = None
         self.weightChangePubber = None
 
-        self.initMovingAverageMassSubber()
-        self.initNamespaceSubber()
         self.initPubbers()
+        rospy.loginfo("pubbers initialized")
+        # self.initIsReadySubber()
+        # rospy.loginfo("is_ready subber initialized")
+        self.initMovingAverageMassSubber()
+        self.initStaticAverageMassSubber()
+        rospy.loginfo("moving and static average mass subbers initialized")
+        # self.initNamespaceSubber()
 
     def initPubbers(self):
         topic = self.ns + "/movingAverageMass"
@@ -55,14 +62,31 @@ class WeighingScaleInterface:
         topic = self.ns + "/weight_changed"
         self.weightChangePubber = rospy.Publisher(topic, Bool, queue_size=1)
 
-    def initNamespaceSubber(self, topic = "namespace"):
-        self.namespaceSubber = rospy.Subscriber(topic, String,
-                                                self.updateNameSpace,
-                                                callback_args = self)
+    # def initNamespaceSubber(self, topic = "namespace"):
+    #     self.namespaceSubber = rospy.Subscriber(topic, String,
+    #                                             self.updateNameSpace,
+    #                                             callback_args = self)
 
-    def updateNamespace(msg, self):
-        self.ns = msg.data
-        rospy.loginfo("Namespace updated as {}".format(self.ns))
+    # def updateNamespace(msg, self):
+    #     self.ns = msg.data
+    #     rospy.loginfo("Namespace updated as {}".format(self.ns))
+
+    def initIsReadySubber(self, topic = "/is_ready"):
+        topic += self.ns
+        self.isReadySubber = rospy.Subscriber(topic, Bool, self.update_is_ready, 
+                                            callback_args = self)
+
+    def update_is_ready(msg, self):
+        if msg:
+            status = "ready"
+        else:
+            status = "not ready"
+        rospy.loginfo("Weighing scale at {ns} is {status}").format(ns = self.ns, status = status)
+        self.isReady = msg
+    
+    def is_ready(self):
+        self.initIsReadySubber(topic = "/is_ready")
+        return self.isReady
 
     def initMovingAverageMassSubber(self, topic = "/movingAverageMass"):
         topic += self.ns
@@ -103,7 +127,7 @@ class WeighingScaleInterface:
             self.movingAverageMassPubber(self.currAverage)
         else:
             self.currAverage = sum(self.staticAverageMassArray)/self.massArrSize
-            self.staticAverageMasspubber(self.currAverage)
+            self.staticAverageMassPubber(self.currAverage)
 
     def resetWeightChangeCheck(self):
         # Resets the weight changed variable, and sets the 
@@ -132,7 +156,7 @@ class WeighingScaleInterface:
             rospy.loginfo('Service unavailable. \
                           Double check that the cell number is valid.')
 
-if name == "main":
+if __name__ == "__main__":
     rospy.init_node("fss_test")
     
     try:
@@ -144,31 +168,35 @@ if name == "main":
     except IndexError:
         print("Please specify the namespace to connect to, e.g. /cell4")
         sys.exit()  
+
+    # rospy.loginfo("ns = {}".format(self.ns))
         
     wsi = WeighingScaleInterface(ns=ns)
-    rospy.sleep(1)
     quit = False
-    
+    rospy.sleep(3)
+
+    rospy.loginfo("wsi is {}".format(wsi.is_ready()))
+
     if wsi.is_ready():
         print('FSS Connected at {}'.format(self.ns))
         rospy.loginfo("This script tests the Force Sensing Surface functionality.")
         rospy.loginfo("Recalibrating...")
-        fss.recalibrate()
+        # fss.recalibrate()
         rospy.loginfo("Weight changed reset will be called every 5 seconds.")
         rospy.sleep(3)
         while not quit and not rospy.is_shutdown():            
             try:
-                
-                print("Current Force Value: {}".format(fss.force_value))
-                print("Current Moving Average Force Value: {}".format(fss.curr_avg))
-                print("Current Force Location: {}".format(fss.force_location))
-                print(fss.get_all_data())
-                print("")
-                print("Weight changed: {}".format(fss.weight_changed))
-                rospy.sleep(0.05)
-                if fss.weight_changed:
-                    if rospy.get_time()%5.0 < 0.2:
-                        fss.reset_weight_change_check()
+                rospy.loginfo("__main__ is running")
+                # print("Current Force Value: {}".format(fss.force_value))
+                # print("Current Moving Average Force Value: {}".format(fss.curr_avg))
+                # print("Current Force Location: {}".format(fss.force_location))
+                # print(fss.get_all_data())
+                # print("")
+                # print("Weight changed: {}".format(fss.weight_changed))
+                # rospy.sleep(0.05)
+                # if fss.weight_changed:
+                #     if rospy.get_time()%5.0 < 0.2:
+                #         fss.reset_weight_change_check()
                 
                 
             except KeyboardInterrupt:

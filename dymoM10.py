@@ -5,6 +5,9 @@ import usb.util
 import math
 import rospy
 from std_msgs.msg import Float64
+from std_msgs.msg import Bool
+from std_msgs.msg import String
+import sys
 
 VENDOR_ID = 0x0922
 PRODUCT_ID = 0x8003
@@ -33,18 +36,19 @@ class WeighingScale:
         self.deviceInitialized = deviceInitialized
         self.mass = None
 
-        self.namespacePubber = None
+        # self.namespacePubber = None
         self.massPubber = None
         self.isReadyPubber = None
 
-    def initNamespacePubber(self):
-        self.namespacePubber = rospy.Publisher("namespace", string, queue_size=1)
+    # def initNamespacePubber(self):
+    #     self.namespacePubber = rospy.Publisher("namespace", string, queue_size=1)
 
-    def initOtherPubbers(self):
-        topic = self.ns + "/mass"
+    def initPubbers(self):
+        topic = self.namespace + "/mass"
         self.massPubber = rospy.Publisher(topic, Float64, queue_size=10)
-        topic = self.ns + "/is_ready"
-        self.isReadyPubber = rospy.Publisher(topic, Bool, queue_size=1)
+        topic = self.namespace + "/is_ready"
+        self.isReadyPubber = rospy.Publisher(topic, Bool, queue_size=10)
+        rospy.loginfo("pubbers ready.")
 
     # bool return on whether device has been found via getDevice()
     def getDeviceFound(self):
@@ -84,6 +88,7 @@ class WeighingScale:
             self.device = device
             print("Device %s:%s found!" %
                     (hex(self.idVendor), hex(self.idProduct)))
+        self.setDeviceInitializedStatus(False)
 
     def initializeDevice(self):
         print("Device %s:%s is initializing!" %
@@ -93,12 +98,15 @@ class WeighingScale:
 
         if device is not None:
             self.setDeviceFound(True)
+            # device.set_configuration()
             c = 1
             for config in device:
                 print 'config', c
                 print 'Interfaces', config.bNumInterfaces
                 for i in range(config.bNumInterfaces):
+                    rospy.loginfo("checking if kernel driver {} is active while c = {}".format(i, c))
                     if device.is_kernel_driver_active(i):
+                        rospy.loginfo("detaching kernel driver")
                         device.detach_kernel_driver(i)
                     print(i)
                 c += 1
@@ -109,6 +117,11 @@ class WeighingScale:
             self.setDeviceInitializedStatus(True)
         else:
             self.setDeviceFound(False)
+            self.setDeviceInitializedStatus(False)
+
+        rospy.loginfo("self.deviceInitialized = {}".format(self.deviceInitialized))
+        self.isReadyPubber.publish(self.getDeviceInitializedStatus())
+            
 
     def getData(self):
         data = None
@@ -122,14 +135,14 @@ class WeighingScale:
                 self.setData(self.device.read(endpoint.bEndpointAddress,
                                          endpoint.wMaxPacketSize))
 
-                print(self.getMass())
+                print(self.getMassReading())
 
             except usb.core.USBError as e:
                 print("USB error")
                 self.data = None
                 self.setDeviceFound(False)
 
-                print("device not found 1")
+                print("device not found")
                 if e.args == ('Operation timed out',):
                     print("operation timed out")
 
@@ -146,21 +159,25 @@ class WeighingScale:
 
         return mass
 
-    def initPubbers(self):
-        topic = self.ns + "/namespace"
-
     def publishMass(self):
-        dataPublisher = rospy.Publisher("mass", Float64, queue_size=10)
-        msg = self.getMass()
+        mass = self.getMassReading()
         if self.device is None:
             self.setDeviceFound(False)
-            # raise ValueError('Device not found')
+            rospy.loginfo("Device not found")
         else:
-            dataPublisher.publish(msg)
+            self.massPubber.publish(mass)
 
-if name == "main":
+    #     dataPublisher = rospy.Publisher(self.namespace + "/mass", Float64, queue_size=10)
+    #     msg = self.getMassReading()
+    #     if self.device is None:
+    #         self.setDeviceFound(False)
+    #         rospy.loginfo("Device not found")
+    #         # raise ValueError('Device not found')
+    #     else:
+    #         dataPublisher.publish(msg)
+
+if __name__ == "__main__":
     rospy.init_node("dymoM10")
-    ws = WeighingScale(ns = "resetSlide")
     
     try:
         if str(sys.argv[1]):
@@ -172,20 +189,26 @@ if name == "main":
         print("Please specify the namespace to connect to, e.g. /cell4")
         sys.exit()  
 
+    ws = WeighingScale(namespace = ns)
+    rospy.sleep(1)
+    quit = False
+
+    ws.initPubbers()
 
     rospy.loginfo("Script ready.")
 
     rate = rospy.Rate(10.0)
     while not rospy.is_shutdown():
-        if (ws.getDeviceFound() == False):
-            ws.setData(None)
-            ws.identifyDevice()
-        else:
-            ws.initializeDevice()
-            if (ws.getDeviceInitializedStatus()):
-                ws.getData()
-                ws.publishMass()
-        # else:
-        #     print("device is none")
+        try:
+            if not ws.getDeviceFound():
+                ws.setData(None)
+                ws.identifyDevice()
+            elif ws.getDeviceInitializedStatus():
+                    ws.getData()
+                    ws.publishMass()
+            else:
+                ws.initializeDevice()
 
-        rate.sleep()
+            rate.sleep()
+        except KeyboardInterrupt:
+                quit = True
