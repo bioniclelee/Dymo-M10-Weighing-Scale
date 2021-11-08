@@ -50,8 +50,7 @@ class WeighingScaleInterface:
         # self.initIsReadySubber()
         # rospy.loginfo("is_ready subber initialized")
         self.initMovingAverageMassSubber()
-        self.initStaticAverageMassSubber()
-        rospy.loginfo("moving and static average mass subbers initialized")
+        rospy.loginfo("moving average mass subbers initialized")
         # self.initNamespaceSubber()
 
     def initPubbers(self):
@@ -72,7 +71,8 @@ class WeighingScaleInterface:
     #     rospy.loginfo("Namespace updated as {}".format(self.ns))
 
     def initIsReadySubber(self, topic = "/is_ready"):
-        topic += self.ns
+        topic = "/" + self.ns + topic
+        # print(topic)
         self.isReadySubber = rospy.Subscriber(topic, Bool, self.update_is_ready, 
                                             callback_args = self)
 
@@ -88,18 +88,18 @@ class WeighingScaleInterface:
         self.initIsReadySubber(topic = "/is_ready")
         return self.isReady
 
-    def initMovingAverageMassSubber(self, topic = "/movingAverageMass"):
-        topic += self.ns
-        self.movingAverageMassSubber = rospy.Subscriber(topic, Float64,
-                                                        self.updateMovingAverageMassArr,
-                                                        callback_args = self)
+    def initMovingAverageMassSubber(self, topic = "/mass"):
+        topic = self.ns + topic
+        self.movingAverageMassSubber = rospy.Subscriber(topic, Float64)
+                                                        # self.updateMovingAverageMassArr,
+                                                        # callback_args = self)
 
     def updateMovingAverageMassArr(msg, self):
         if self.movingAverageMassArrSize == (len(self.movingAverageMassArr)):
             self.movingAverageMassArr = self.pushPop(self.movingAverageMassArr, msg)
             # self.prevMovingAverage = self.currMovingAverage
             # self.currMovingAverage = sum(self.movingAverageMassArray)/self.movingAverageMassArrSize
-        self.staticMassArray.append(msg)
+        self.movingAverageMassArr.append(msg)
 
     def pushPop(list, newElem):
         newList = []
@@ -109,7 +109,7 @@ class WeighingScaleInterface:
         return newList         
 
     def initStaticAverageMassSubber(self, topic = "/staticAverageMass"):
-        topic += self.ns
+        topic = self.ns + topic
         self.staticAverageMassSubber = rospy.Subscriber(topic, Float64,
                                                 self.updateStaticAverageMassArr,
                                                 callback_args = self)
@@ -120,14 +120,11 @@ class WeighingScaleInterface:
             # self.currStaticAverage = sum(self.staticAverageMassArray)/self.massArrSize
             self.staticMassArray.append(msg)
 
-    def update(self, mode):
-        self.prevAverage = self.currAverage
-        if mode == "moving":
-            self.currAverage = sum(self.movingAverageMassArray)/self.movingAverageMassArrSize
-            self.movingAverageMassPubber(self.currAverage)
-        else:
-            self.currAverage = sum(self.staticAverageMassArray)/self.massArrSize
-            self.staticAverageMassPubber(self.currAverage)
+    def getWeightChanged(self):
+        return self.weightChanged
+    
+    def setWeightChanged(self, newStatus):
+        self.weightChanged = newStatus
 
     def resetWeightChangeCheck(self):
         # Resets the weight changed variable, and sets the 
@@ -135,26 +132,48 @@ class WeighingScaleInterface:
         # weight change check.
         if self.weightChanged:
             self.weightChanged = False
-        self.prevAverage = self.currAverage
+        self.prevAverage = self.currAverageMass
 
-    def recalibrate(self): 
-        # Setup rospy service proxy for calling the recalibration service
-        recalib = rospy.ServiceProxy(self._ns + '/force_surface_sensor/recalibrate', Empty)
-        time.sleep(1)
-        try:
-            # Checks if service is available with a 3s timeout
-            rospy.wait_for_service(self._ns + '/force_surface_sensor/recalibrate', timeout=3)
-            # Calls service
-            response = recalib()
-        except rospy.ServiceException as exc:
-            # Catch the 'failed' service call exception raised due to the rosserial v0.8 bug
-            # print str(exc)
-            pass
+    def update(self, mode):
+        self.setWeightChanged(False)
+        threshold = 0
+        self.prevAverage = self.currAverageMass
+        if mode == 1:
+            self.currAverageMass = sum(self.movingAverageMassArray)/self.movingAverageMassArrSize
+            self.movingAverageMassPubber(self.currAverageMass)
+            threshold = self.movingAverageMassThreshold
+        else:
+            self.currAverageMass = sum(self.staticAverageMassArray)/self.massArrSize
+            self.staticAverageMassPubber(self.currAverageMass)
+            threshold = self.staticAverageMassThreshold
+        
+        if abs(self.currAverageMass - self.prevAverageMass) > threshold:
+            self.setWeightChanged(True)
 
-        # If service is not available
-        except rospy.ROSException:
-            rospy.loginfo('Service unavailable. \
-                          Double check that the cell number is valid.')
+    def getCurrAverage(self):
+        return self.currAverageMass
+
+    def getPrevAverage(self):
+        return self.prevAverageMass
+
+    # def recalibrate(self): 
+    #     # Setup rospy service proxy for calling the recalibration service
+    #     recalib = rospy.ServiceProxy(self._ns + '/force_surface_sensor/recalibrate', Empty)
+    #     time.sleep(1)
+    #     try:
+    #         # Checks if service is available with a 3s timeout
+    #         rospy.wait_for_service(self._ns + '/force_surface_sensor/recalibrate', timeout=3)
+    #         # Calls service
+    #         response = recalib()
+    #     except rospy.ServiceException as exc:
+    #         # Catch the 'failed' service call exception raised due to the rosserial v0.8 bug
+    #         # print str(exc)
+    #         pass
+
+    #     # If service is not available
+    #     except rospy.ROSException:
+    #         rospy.loginfo('Service unavailable. \
+    #                       Double check that the cell number is valid.')
 
 if __name__ == "__main__":
     rospy.init_node("fss_test")
@@ -177,30 +196,30 @@ if __name__ == "__main__":
 
     rospy.loginfo("wsi is {}".format(wsi.is_ready()))
 
-    if wsi.is_ready():
-        print('FSS Connected at {}'.format(self.ns))
-        rospy.loginfo("This script tests the Force Sensing Surface functionality.")
-        rospy.loginfo("Recalibrating...")
-        # fss.recalibrate()
-        rospy.loginfo("Weight changed reset will be called every 5 seconds.")
-        rospy.sleep(3)
-        while not quit and not rospy.is_shutdown():            
-            try:
-                rospy.loginfo("__main__ is running")
-                # print("Current Force Value: {}".format(fss.force_value))
-                # print("Current Moving Average Force Value: {}".format(fss.curr_avg))
+    while not quit and not rospy.is_shutdown():            
+        try:
+            if wsi.is_ready():
+                print('Dymo M10 weighing scale Connected at {}'.format(self.ns))
+                rospy.loginfo("This script tests the Force Sensing Surface functionality.")
+                # rospy.loginfo("Recalibrating...")
+                # fss.recalibrate()
+                rospy.loginfo("Weight changed reset will be called every 5 seconds.")
+                rospy.sleep(1)
+
+                # rospy.loginfo("__main__ is running")
+                # print("Current mass: {}".format(wsi.))
+                print("Current Moving Average Mass: {}".format(wsi.getCurrAverage()))
                 # print("Current Force Location: {}".format(fss.force_location))
                 # print(fss.get_all_data())
                 # print("")
-                # print("Weight changed: {}".format(fss.weight_changed))
-                # rospy.sleep(0.05)
-                # if fss.weight_changed:
-                #     if rospy.get_time()%5.0 < 0.2:
-                #         fss.reset_weight_change_check()
-                
-                
-            except KeyboardInterrupt:
-                quit = True
+                print("Weight changed: {}".format(wsi.getWeightChanged()))
+                rospy.sleep(0.05)
+                if wsi.getWeightChanged():
+                    if rospy.get_time()%5.0 < 0.2:
+                        wsi.resetWeightChangeCheck()  
+            
+        except KeyboardInterrupt:
+            quit = True
 
 # Chan Wai Lee, [28/10/21 6:07 PM]
 # #!/usr/bin/env python
