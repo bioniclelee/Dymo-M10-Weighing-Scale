@@ -57,6 +57,7 @@ class WeighingScale:
         if self.device is not None:
             rospy.core.loginfo("Device {}:{} found!" .format(hex(self.idVendor), hex(self.idProduct)))
             rospy.core.loginfo("Device {}:{} is initializing!" .format(hex(self.idVendor), hex(self.idProduct)))
+            usb.util.dispose_resources(self.device)
             try:
                 c = 1
                 for config in self.device:
@@ -65,9 +66,10 @@ class WeighingScale:
                     for i in range(config.bNumInterfaces):
                         print("checking if kernel driver {} is active while c = {}".format(i, c))
                         if self.device.is_kernel_driver_active(i):
-                            print("detaching kernel driver")
+                            rospy.loginfo("detaching kernel driver {}".format(i))
                             self.device.detach_kernel_driver(i)
-                        print(i)
+                        # usb.util.claim_interface(self.device, i)
+                        # rospy.loginfo("claiming interface {}".format(i))
                     c += 1
 
                 self.device.set_configuration()
@@ -79,6 +81,9 @@ class WeighingScale:
                 rospy.core.logwarn("USB error: Device not found")
                 self.data = None
                 self.deviceInitialized = False
+                
+            except KeyboardInterrupt:
+                print("bye at initialize")
 
     def publishMass(self):
         data = None
@@ -97,7 +102,7 @@ class WeighingScale:
                 if self.data[2] == 11:
                     self.mass *= math.pow(10, 254 - self.data[3])
 
-                print(self.mass)
+                rospy.loginfo(self.mass)
                 self.massPubber.publish(self.mass)
 
             except usb.core.USBError as e:
@@ -106,7 +111,9 @@ class WeighingScale:
                 self.deviceInitialized = False
                 if e.args == ('Operation timed out',):
                     rospy.core.loginfo("operation timed out")
-
+            
+            except KeyboardInterrupt:
+                print("bye at publish mass")
 
 if __name__ == "__main__":
     rospy.init_node("dymoM10")
@@ -126,7 +133,7 @@ if __name__ == "__main__":
     quit = False
 
     ws.initPubbers()
-    ws.publishIsReady()
+
 
     print("Script ready.")
 
@@ -142,7 +149,8 @@ if __name__ == "__main__":
             rate.sleep()
 
         except KeyboardInterrupt:
-                quit = True
+            print("bye")
+            quit = True
 
     # def getDevice(self):
     #     device = usb.core.find(idVendor=self.idVendor, idProduct=self.idProduct)

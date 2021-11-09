@@ -40,6 +40,7 @@ class WeighingScaleInterface:
         self.prevAverageMass = 0
         self.currAverageMass = 0
         self.weightChanged = False
+        self.threshold = 0.3
 
         self.movingAverageMassPubber = None
         self.staticAverageMassPubber = None
@@ -47,8 +48,8 @@ class WeighingScaleInterface:
 
         self.initPubbers()
         rospy.loginfo("pubbers initialized")
-        # self.initIsReadySubber()
-        # rospy.loginfo("is_ready subber initialized")
+        self.initIsReadySubber()
+        rospy.loginfo("is_ready subber initialized")
         self.initMovingAverageMassSubber()
         rospy.loginfo("moving average mass subbers initialized")
         # self.initNamespaceSubber()
@@ -73,58 +74,62 @@ class WeighingScaleInterface:
     def initIsReadySubber(self, topic = "/is_ready"):
         topic = "/" + self.ns + topic
         # print(topic)
-        self.isReadySubber = rospy.Subscriber(topic, Bool, self.update_is_ready, 
-                                            callback_args = self)
+        self.isReadySubber = rospy.Subscriber(topic, Bool, self.update_is_ready)
 
-    def update_is_ready(msg, self):
-        if msg:
+    def update_is_ready(self, msg):
+        if msg.data:
             status = "ready"
         else:
             status = "not ready"
-        rospy.loginfo("Weighing scale at {ns} is {status}").format(ns = self.ns, status = status)
-        self.isReady = msg
+            rospy.logwarn("weighing scale is not ready")
+        # rospy.loginfo("Weighing scale at {} is {}".format(self.ns, status))
+        self.isReady = msg.data
     
     def is_ready(self):
-        self.initIsReadySubber(topic = "/is_ready")
         return self.isReady
 
     def initMovingAverageMassSubber(self, topic = "/mass"):
-        topic = self.ns + topic
-        self.movingAverageMassSubber = rospy.Subscriber(topic, Float64)
-                                                        # self.updateMovingAverageMassArr,
+        topic = "/" + self.ns + topic
+        self.movingAverageMassSubber = rospy.Subscriber(topic, Float64, self.updateMovingAverageMassArr)
                                                         # callback_args = self)
 
-    def updateMovingAverageMassArr(msg, self):
+    def updateMovingAverageMassArr(self, msg):
+        # rospy.loginfo("current mass reading: {}".format(msg.data))
+        # rospy.loginfo("len(movingAverageMass):{}".format(len(self.movingAverageMassArr)))
         if self.movingAverageMassArrSize == (len(self.movingAverageMassArr)):
-            self.movingAverageMassArr = self.pushPop(self.movingAverageMassArr, msg)
+            self.movingAverageMassArr = self.pushPop(self.movingAverageMassArr, msg.data)
             # self.prevMovingAverage = self.currMovingAverage
-            # self.currMovingAverage = sum(self.movingAverageMassArray)/self.movingAverageMassArrSize
-        self.movingAverageMassArr.append(msg)
+            # self.currMovingAverage = sum(self.movingAverageMassArr)/self.movingAverageMassArrSize
+        else:
+            self.movingAverageMassArr.append(msg.data)
 
-    def pushPop(list, newElem):
+    def pushPop(self, list, newElem):
         newList = []
         for i in range(1, len(list)-1):
-            newList[i-1] = list[i]
+            # rospy.loginfo("newList index:{} | list index:{}".format(i-1, i))
+            newList.append(list[i])
+            # rospy.loginfo("assigned list[{}] to newList[{}]".format(i, i-1))
         newList.append(newElem)
         return newList         
 
     def initStaticAverageMassSubber(self, topic = "/staticAverageMass"):
-        topic = self.ns + topic
+        topic = "/" + self.ns + topic
         self.staticAverageMassSubber = rospy.Subscriber(topic, Float64,
                                                 self.updateStaticAverageMassArr,
                                                 callback_args = self)
 
     def updateStaticAverageMassArr(msg, self):
-        if self.staticAverageMassArrSize != (len(self.staticAverageMassArray)):
+        if self.staticAverageMassArrSize != (len(self.staticAverageMassArr)):
             # self.prevStaticAverage = self.currStaticAverage
-            # self.currStaticAverage = sum(self.staticAverageMassArray)/self.massArrSize
-            self.staticMassArray.append(msg)
+            # self.currStaticAverage = sum(self.staticAverageMassArr)/self.massArrSize
+            rospy.loginfo("msg is", type(msg))
+            self.staticMassArr.append(Float64(msg))
 
-    def getWeightChanged(self):
-        return self.weightChanged
+    # def getWeightChanged(self):
+    #     return self.weightChanged
     
-    def setWeightChanged(self, newStatus):
-        self.weightChanged = newStatus
+    # def setWeightChanged(self, newStatus):
+    #     self.weightChanged = newStatus
 
     def resetWeightChangeCheck(self):
         # Resets the weight changed variable, and sets the 
@@ -132,29 +137,33 @@ class WeighingScaleInterface:
         # weight change check.
         if self.weightChanged:
             self.weightChanged = False
-        self.prevAverage = self.currAverageMass
+            rospy.logwarn("self.weightChanged: {}".format(self.weightChanged))
+        self.prevAverageMass = self.currAverageMass
 
     def update(self, mode):
-        self.setWeightChanged(False)
-        threshold = 0
         self.prevAverage = self.currAverageMass
         if mode == 1:
-            self.currAverageMass = sum(self.movingAverageMassArray)/self.movingAverageMassArrSize
-            self.movingAverageMassPubber(self.currAverageMass)
-            threshold = self.movingAverageMassThreshold
+            # print("datatype of self.movingAverageMassArrSize:", type(self.movingAverageMassArrSize))
+            # print("datatype of sum(self.movingAverageMassArr:", type(sum(self.movingAverageMassArr)))
+            self.currAverageMass = sum(self.movingAverageMassArr)/len(self.movingAverageMassArr)
+            # self.currAverageMass = sum(self.movingAverageMassArr)/float(self.movingAverageMassArrSize)
+            self.movingAverageMassPubber.publish(self.currAverageMass)
         else:
-            self.currAverageMass = sum(self.staticAverageMassArray)/self.massArrSize
-            self.staticAverageMassPubber(self.currAverageMass)
-            threshold = self.staticAverageMassThreshold
-        
-        if abs(self.currAverageMass - self.prevAverageMass) > threshold:
-            self.setWeightChanged(True)
+            self.currAverageMass = sum(self.staticAverageMassArr)/self.staticMassArrSize
+            self.staticAverageMassPubber.publish(self.currAverageMass)
 
-    def getCurrAverage(self):
-        return self.currAverageMass
+        rospy.loginfo("self.currAverageMass = {} | self.prevAverageMass = {}"
+        .format(self.currAverageMass, self.prevAverageMass))
 
-    def getPrevAverage(self):
-        return self.prevAverageMass
+        if abs(self.currAverageMass - self.prevAverageMass) > self.threshold:
+            self.weightChanged = True
+            rospy.logwarn("self.weightChanged: {}".format(self.weightChanged))
+
+    # def getCurrAverage(self):
+    #     return self.currAverageMass
+
+    # def getPrevAverage(self):
+    #     return self.prevAverageMass
 
     # def recalibrate(self): 
     #     # Setup rospy service proxy for calling the recalibration service
@@ -192,14 +201,15 @@ if __name__ == "__main__":
         
     wsi = WeighingScaleInterface(ns=ns)
     quit = False
-    rospy.sleep(3)
 
-    rospy.loginfo("wsi is {}".format(wsi.is_ready()))
+    while not quit and not rospy.is_shutdown():
+        # wsi.is_ready()
 
-    while not quit and not rospy.is_shutdown():            
+        # rospy.loginfo("wsi is {}".format(wsi.isReady))
+            
         try:
             if wsi.is_ready():
-                print('Dymo M10 weighing scale Connected at {}'.format(self.ns))
+                rospy.loginfo("Dymo M10 weighing scale Connected at {}".format(wsi.ns))
                 rospy.loginfo("This script tests the Force Sensing Surface functionality.")
                 # rospy.loginfo("Recalibrating...")
                 # fss.recalibrate()
@@ -208,15 +218,17 @@ if __name__ == "__main__":
 
                 # rospy.loginfo("__main__ is running")
                 # print("Current mass: {}".format(wsi.))
-                print("Current Moving Average Mass: {}".format(wsi.getCurrAverage()))
+                rospy.loginfo("Current Moving Average Mass: {}".format(wsi.currAverageMass))
                 # print("Current Force Location: {}".format(fss.force_location))
                 # print(fss.get_all_data())
                 # print("")
-                print("Weight changed: {}".format(wsi.getWeightChanged()))
-                rospy.sleep(0.05)
-                if wsi.getWeightChanged():
-                    if rospy.get_time()%5.0 < 0.2:
-                        wsi.resetWeightChangeCheck()  
+                rospy.loginfo("updating weighing scale weight...")
+                rospy.sleep(3)
+                wsi.update(1)
+                rospy.loginfo("Weight changed: {}".format(wsi.weightChanged))
+                if wsi.weightChanged:
+                    rospy.logwarn("resetting weight change...")
+                    wsi.resetWeightChangeCheck()
             
         except KeyboardInterrupt:
             quit = True
