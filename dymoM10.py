@@ -1,5 +1,13 @@
 #!/usr/bin/env python2
 
+"""
+@description: Weighing scale node. Interface with the dymo M10 weighing scale unit
+@file: dymoM10.py
+@date: Nov 2021
+@author: Lee Chan Wai <chanwai.lee@dyson.com>
+@notes : Copyright (c) 2021 Dyson technology Ltd, All Rights
+"""
+
 import usb.core
 import usb.util
 import math
@@ -8,6 +16,7 @@ from std_msgs.msg import Float64
 from std_msgs.msg import Bool
 from std_msgs.msg import String
 import sys
+import Jetson.GPIO as GPIO
 
 VENDOR_ID = 0x0922
 PRODUCT_ID = 0x8003
@@ -18,26 +27,30 @@ class WeighingScale:
     idVendor = 0
     idProduct = 0
     data = 0
-    deviceInitialized = False
+    isReady = False
 
-    # def __init__(self, idVendor, idProduct):
-    #     self.idVendor = idVendor
-    #     self.idProduct = idProduct
-    #     deviceFound = False
-
-    def __init__(self, namespace, data = None, deviceInitialized = False):
+    def __init__(self, namespace, data = None, isReady = False):
         self.namespace = namespace
         self.idVendor = VENDOR_ID
         self.idProduct = PRODUCT_ID
         self.data = data
         self.device = None
-        self.deviceInitialized = deviceInitialized
+        self.isReady = isReady
         self.mass = None
 
         # self.namespacePubber = None
         self.massPubber = None
         self.isReadyPubber = None
 
+        self.powerPin = 0
+        self.unitsSwitchPin = 1
+        self.tarePin = 2
+        self.initJetsonGPIO()
+
+        rospy.loginfo("Jetson GPIOs online")
+
+        self.toggleUnits()
+    
     # def initNamespacePubber(self):
     #     self.namespacePubber = rospy.Publisher("namespace", string, queue_size=1)
 
@@ -48,8 +61,47 @@ class WeighingScale:
         self.isReadyPubber = rospy.Publisher(topic, Bool, queue_size=10)
         print("pubbers ready.")
 
+    def initJetsonGPIO(self):
+        GPIO.setmode(GPIO.BOARD)  # BCM pin-numbering scheme from Raspberry Pi
+        # set pin as an output pin with optional initial state of HIGH
+        GPIO.setup(self.powerPin, GPIO.OUT, initial=GPIO.LOW)
+        GPIO.setup(self.unitsSwitchPin, GPIO.OUT, initial=GPIO.LOW)
+        GPIO.setup(self.tarePin, GPIO.OUT, initial=GPIO.LOW)
+
+    def initInterruptSubber(self):
+        topic = "/" + self.ns + "/interrupt"
+        self.interruptSubber - rospy.Subscriber(topic, Bool, self.gpioInterruptCallback)
+
+    def gpioInterruptCallback(self, msg):
+        self.isReady = False
+        rospy.logwarn("device is {}".format(self.isReady))
+        if msg == (self.powerPin or self.unitsSwitchPin or self.tarePin):
+            # pin trigger code
+            pass
+        self.isReady = True
+        rospy.logwarn("device is {}".format(self.isReady))
+
+    # function to toggle the weighing scale between kg/g and lb/oz to prevent inactivity
+    def toggleUnits(self):
+        try:
+            rospy.logwarn("Toggling units now")
+            self.isReady = False
+            GPIO.output(self.unitsSwitchPin, GPIO.HIGH)
+            time.sleep(0.2)
+            GPIO.output(self.unitsSwitchPin, GPIO.LOW)
+            time.sleep(0.2)
+            GPIO.output(self.unitsSwitchPin, GPIO.HIGH)
+            time.sleep(0.2)
+            GPIO.output(self.unitsSwitchPin, GPIO.LOW)
+            self.isReady = True
+            time.sleep(120.0)
+
+            rospy.spin()
+        finally:
+            GPIO.cleanup()
+
     def publishIsReady(self):
-        self.isReadyPubber.publish(self.deviceInitialized)
+        self.isReadyPubber.publish(self.isReady)
 
     def initializeDevice(self):
         rospy.core.loginfo("Identifying...")
@@ -74,13 +126,13 @@ class WeighingScale:
 
                 self.device.set_configuration()
                 rospy.core.loginfo("Device config set!")
-                self.deviceInitialized = True
+                self.isReady = True
             
             except usb.core.USBError as e:
                 print(e)
                 rospy.core.logwarn("USB error: Device not found")
                 self.data = None
-                self.deviceInitialized = False
+                self.isReady = False
                 
             except KeyboardInterrupt:
                 print("bye at initialize")
@@ -89,7 +141,7 @@ class WeighingScale:
         data = None
         mass = None
 
-        if self.deviceInitialized == True:
+        if self.isReady == True:
             try:
                 # first endpoint
                 endpoint = self.device[0][(0, 0)][0]
@@ -108,7 +160,7 @@ class WeighingScale:
             except usb.core.USBError as e:
                 rospy.core.logwarn("USB error: Device not found")
                 self.data = None
-                self.deviceInitialized = False
+                self.isReady = False
                 if e.args == ('Operation timed out',):
                     rospy.core.loginfo("operation timed out")
             
@@ -134,14 +186,13 @@ if __name__ == "__main__":
 
     ws.initPubbers()
 
-
     print("Script ready.")
 
     rate = rospy.Rate(10.0)
     while not rospy.is_shutdown():
         ws.publishIsReady()
         try:
-            if not ws.deviceInitialized:
+            if not ws.isReady:
                 ws.initializeDevice()
             else:
                 ws.publishMass()
@@ -151,88 +202,3 @@ if __name__ == "__main__":
         except KeyboardInterrupt:
             print("bye")
             quit = True
-
-    # def getDevice(self):
-    #     device = usb.core.find(idVendor=self.idVendor, idProduct=self.idProduct)
-
-    #     if device is not None:
-    #         self.device = device
-    #         self.setDeviceFound(True)
-    #         return device
-
-    #     # raise ValueError('Device not found')
-    #     print("device not found")
-    #     self.setDeviceFound(False)
-    #     self.setData(None)
-    #     return None
-
-    # def identifyDevice(self):
-    #     print("Identifying...")
-    #     # find the USB device
-    #     device = self.getDevice()
-    #     if device is not None:
-    #         self.device = device
-    #         print("Device %s:%s found!" %
-    #                 (hex(self.idVendor), hex(self.idProduct)))
-    #     self.deviceInitialized = False
-
-    # def initializeDevice(self):
-    #     print("Device %s:%s is initializing!" %
-    #           (hex(self.idVendor), hex(self.idProduct)))
-        
-    #     device = self.device
-
-    #     if device is not None:
-    #         self.setDeviceFound(True)
-    #         # device.set_configuration()
-    #         c = 1
-    #         for config in device:
-    #             print 'config', c
-    #             print 'Interfaces', config.bNumInterfaces
-    #             for i in range(config.bNumInterfaces):
-    #                 print("checking if kernel driver {} is active while c = {}".format(i, c))
-    #                 if device.is_kernel_driver_active(i):
-    #                     print("detaching kernel driver")
-    #                     device.detach_kernel_driver(i)
-    #                 print(i)
-    #             c += 1
-
-    #         device.set_configuration()
-    #         print("Device config set!")
-
-    #         self.setDeviceInitializedStatus(True)
-    #     else:
-    #         self.setDeviceFound(False)
-    #         self.setDeviceInitializedStatus(False)
-
-    #     print("self.deviceInitialized = {}".format(self.getDeviceInitializedStatus()))
-
-    # def getMassReading(self):
-    # if self.deviceInitialized:
-    # # data[2] == 2 is kg mode, 11 is lb/oz mode
-    #     mass = self.data[4] + (256 * self.data[5])
-    #     if self.data[2] == 11:
-    #         mass *= math.pow(10, 254 - self.data[3])
-
-    #     self.mass = mass
-
-    #     return mass
-
-    # rospy.logwarn("Device not found")
-
-    # def publishMass(self):
-    # mass = self.getMassReading()
-    # if self.device is None:
-    #     self.deviceFound = False
-    #     rospy.logwarn("Device not found")
-    # else:
-    #     self.massPubber.publish(mass)
-
-    #     dataPublisher = rospy.Publisher(self.namespace + "/mass", Float64, queue_size=10)
-    #     msg = self.getMassReading()
-    #     if self.device is None:
-    #         self.setDeviceFound(False)
-    #         print("Device not found")
-    #         # raise ValueError('Device not found')
-    #     else:
-    #         dataPublisher.publish(msg)
