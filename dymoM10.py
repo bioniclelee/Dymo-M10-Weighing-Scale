@@ -42,14 +42,16 @@ class WeighingScale:
         self.massPubber = None
         self.isReadyPubber = None
 
-        self.powerPin = 0
-        self.unitsSwitchPin = 1
-        self.tarePin = 2
+        self.startTime = rospy.get_rostime()
+        self.timeInterval = rospy.Duration(secs=10) #units in seconds
+        self.powerPin = 11
+        self.unitsSwitchPin = 12
+        self.tarePin = 13
+        
+        self.initPubbers()
+
         self.initJetsonGPIO()
-
-        rospy.loginfo("Jetson GPIOs online")
-
-        self.toggleUnits()
+        # self.toggleUnits()
     
     # def initNamespacePubber(self):
     #     self.namespacePubber = rospy.Publisher("namespace", string, queue_size=1)
@@ -84,21 +86,32 @@ class WeighingScale:
     # function to toggle the weighing scale between kg/g and lb/oz to prevent inactivity
     def toggleUnits(self):
         try:
-            rospy.logwarn("Toggling units now")
-            self.isReady = False
-            GPIO.output(self.unitsSwitchPin, GPIO.HIGH)
-            time.sleep(0.2)
-            GPIO.output(self.unitsSwitchPin, GPIO.LOW)
-            time.sleep(0.2)
-            GPIO.output(self.unitsSwitchPin, GPIO.HIGH)
-            time.sleep(0.2)
-            GPIO.output(self.unitsSwitchPin, GPIO.LOW)
-            self.isReady = True
-            time.sleep(120.0)
+            self.startTime = rospy.get_rostime()
+            prevIsReady = self.isReady
 
-            rospy.spin()
-        finally:
-            GPIO.cleanup()
+            rospy.logwarn("Toggling units now")
+
+            self.isReady = False
+
+            GPIO.output(self.unitsSwitchPin, GPIO.HIGH)
+            rospy.sleep(1)
+            GPIO.output(self.unitsSwitchPin, GPIO.LOW)
+            rospy.sleep(1)
+            GPIO.output(self.unitsSwitchPin, GPIO.HIGH)
+            rospy.sleep(1)
+            GPIO.output(self.unitsSwitchPin, GPIO.LOW)
+            
+            if prevIsReady == True:
+                self.isReady = True
+
+        except usb.core.USBError as e:
+            print(e)
+            rospy.core.logwarn("USB error: Device not found")
+            self.data = None
+            self.isReady = False
+
+        except KeyboardInterrupt:
+                print("bye at toggle")
 
     def publishIsReady(self):
         self.isReadyPubber.publish(self.isReady)
@@ -184,8 +197,6 @@ if __name__ == "__main__":
     rospy.sleep(1)
     quit = False
 
-    ws.initPubbers()
-
     print("Script ready.")
 
     rate = rospy.Rate(10.0)
@@ -196,9 +207,14 @@ if __name__ == "__main__":
                 ws.initializeDevice()
             else:
                 ws.publishMass()
-                
+
+            now =  rospy.get_rostime()
+            if (rospy.get_rostime() - ws.startTime >= ws.timeInterval):
+                ws.toggleUnits()
+
             rate.sleep()
 
         except KeyboardInterrupt:
+            GPIO.cleanup()
             print("bye")
             quit = True
