@@ -11,7 +11,7 @@ weighing scale and provides additional functions.
 
 import math
 import rospy
-from std_msgs.msg import Float64, Bool, String
+from std_msgs.msg import Float64, Bool, String, Int32
 import sys
 
 class WeighingScaleInterface:
@@ -55,7 +55,7 @@ class WeighingScaleInterface:
         topic = self.ns + "/weight_changed"
         self.weightChangePubber = rospy.Publisher(topic, Bool, queue_size=1)
         topic = self.ns + "/gpio_interrupt"
-        self.gpioInterruptPubber = rospy.Publisher(topic, int, queue_size=1)
+        self.gpioInterruptPubber = rospy.Publisher(topic, Int32, queue_size=1)
 
     def initIsReadySubber(self, topic = "/is_ready"):
         topic = "/" + self.ns + topic
@@ -148,8 +148,8 @@ class WeighingScaleInterface:
         if threshold == None:
             threshold = self.threshold
 
-        oldArrAverage = sum(oldArr) / len(oldArr)
-        newArrAverage = sum(newArr) / len(newArr)
+        oldArrAverage = 0 if len(oldArr) == 0 else sum(oldArr) / len(oldArr)
+        newArrAverage = 0 if len(newArr) == 0 else sum(newArr) / len(newArr)
 
         if abs(oldArrAverage - newArrAverage) > threshold:
             weightChanged = True

@@ -16,7 +16,7 @@ from std_msgs.msg import Float64
 from std_msgs.msg import Bool
 from std_msgs.msg import String
 import sys
-# import Jetson.GPIO as GPIO
+import Jetson.GPIO as GPIO
 
 VENDOR_ID = 0x0922
 PRODUCT_ID = 0x8003
@@ -50,8 +50,8 @@ class WeighingScale:
         
         self.initPubbers()
 
-        # self.initJetsonGPIO()
-        # self.toggleUnits()
+        self.initJetsonGPIO()
+        self.toggleUnits()
     
     # def initNamespacePubber(self):
     #     self.namespacePubber = rospy.Publisher("namespace", string, queue_size=1)
@@ -101,6 +101,8 @@ class WeighingScale:
             rospy.sleep(0.5)
             GPIO.output(self.unitsSwitchPin, GPIO.LOW)
             
+            rospy.logwarn("Toggling units done")
+
             if prevIsReady == True:
                 self.isReady = True
 
@@ -208,9 +210,9 @@ if __name__ == "__main__":
             else:
                 ws.publishMass()
 
-            # now =  rospy.get_rostime()
-            # if (rospy.get_rostime() - ws.startTime >= ws.timeInterval):
-            #     ws.toggleUnits()
+            now =  rospy.get_rostime()
+            if (rospy.get_rostime() - ws.startTime >= ws.timeInterval):
+                ws.toggleUnits()
 
             rate.sleep()
 
