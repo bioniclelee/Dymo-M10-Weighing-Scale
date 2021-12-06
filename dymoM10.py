@@ -12,9 +12,7 @@ import usb.core
 import usb.util
 import math
 import rospy
-from std_msgs.msg import Float64
-from std_msgs.msg import Bool
-from std_msgs.msg import String
+from std_msgs.msg import Float64, Bool, String, Int32
 import sys
 import Jetson.GPIO as GPIO
 
@@ -41,9 +39,11 @@ class WeighingScale:
         # self.namespacePubber = None
         self.massPubber = None
         self.isReadyPubber = None
+        self.resetPubber = None
+        self.resetCounter = 0
 
         self.startTime = rospy.get_rostime()
-        self.timeInterval = rospy.Duration(secs=10) #units in seconds
+        self.timeInterval = rospy.Duration(secs=120) #units in seconds
         self.powerPin = 11
         self.unitsSwitchPin = 12
         self.tarePin = 13
@@ -61,6 +61,8 @@ class WeighingScale:
         self.massPubber = rospy.Publisher(topic, Float64, queue_size=10)
         topic = self.namespace + "/is_ready"
         self.isReadyPubber = rospy.Publisher(topic, Bool, queue_size=10)
+        topic = self.namespace + "/reset_counter"
+        self.resetPubber = rospy.Publisher(topic, Int32, queue_size=10)
         print("pubbers ready.")
 
     def initJetsonGPIO(self):
@@ -86,25 +88,32 @@ class WeighingScale:
     # function to toggle the weighing scale between kg/g and lb/oz to prevent inactivity
     def toggleUnits(self):
         try:
-            self.startTime = rospy.get_rostime()
-            prevIsReady = self.isReady
+            if self.isReady:
+                self.startTime = rospy.get_rostime()
+                prevIsReady = self.isReady
 
-            rospy.logwarn("Toggling units now")
+                rospy.logwarn("Toggling units now")
 
-            self.isReady = False
+                self.isReady = False
+                self.publishIsReady()
 
-            GPIO.output(self.unitsSwitchPin, GPIO.HIGH)
-            rospy.sleep(0.5)
-            GPIO.output(self.unitsSwitchPin, GPIO.LOW)
-            rospy.sleep(0.5)
-            GPIO.output(self.unitsSwitchPin, GPIO.HIGH)
-            rospy.sleep(0.5)
-            GPIO.output(self.unitsSwitchPin, GPIO.LOW)
-            
-            rospy.logwarn("Toggling units done")
+                GPIO.output(self.unitsSwitchPin, GPIO.HIGH)
+                rospy.sleep(0.2)
+                GPIO.output(self.unitsSwitchPin, GPIO.LOW)
+                rospy.sleep(0.2)
+                GPIO.output(self.unitsSwitchPin, GPIO.HIGH)
+                rospy.sleep(0.2)
+                GPIO.output(self.unitsSwitchPin, GPIO.LOW)
+                
+                self.resetCounter += 1
+                self.resetPubber.publish(self.resetCounter)
 
-            if prevIsReady == True:
-                self.isReady = True
+                rospy.logwarn("Toggling units done")
+
+                if prevIsReady == True:
+                    self.isReady = True
+                
+                self.publishIsReady()
 
         except usb.core.USBError as e:
             print(e)
@@ -156,7 +165,7 @@ class WeighingScale:
         data = None
         mass = None
 
-        if self.isReady == True:
+        if self.isReady:
             try:
                 # first endpoint
                 endpoint = self.device[0][(0, 0)][0]
@@ -184,7 +193,7 @@ class WeighingScale:
 
 if __name__ == "__main__":
     rospy.init_node("dymoM10")
-    
+    import time
     try:
         if str(sys.argv[1]):
             ns = str(sys.argv[1])
@@ -203,6 +212,7 @@ if __name__ == "__main__":
 
     rate = rospy.Rate(10.0)
     while not rospy.is_shutdown():
+        prevTime = time.time()
         ws.publishIsReady()
         try:
             if not ws.isReady:
@@ -211,10 +221,11 @@ if __name__ == "__main__":
                 ws.publishMass()
 
             now =  rospy.get_rostime()
-            if (rospy.get_rostime() - ws.startTime >= ws.timeInterval):
+            if (now - ws.startTime >= ws.timeInterval):
                 ws.toggleUnits()
 
             rate.sleep()
+            # print("time = ", time.time() - prevTime)
 
         except KeyboardInterrupt:
             GPIO.cleanup()

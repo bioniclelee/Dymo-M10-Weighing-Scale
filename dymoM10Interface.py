@@ -19,6 +19,7 @@ class WeighingScaleInterface:
     def __init__(self, ns, staticAverageMassArrSize = 10, movingAverageMassArrSize = 10):
         self.ns = ns
         self.isReady = False
+        self.prevIsReady = False
         self.isReadySubber = None
         
         self.tempMassArr = []
@@ -80,6 +81,8 @@ class WeighingScaleInterface:
                                                         # callback_args = self)
 
     def updateMassArr(self, msg):
+        if (self.prevIsReady == False and self.isReady == True):
+            rospy.sleep(1)
         if (len(self.tempMassArr)) == (2 * self.movingAverageMassArrSize):
             self.tempMassArr = self.pushPop(self.tempMassArr, msg.data)
             self.prevAverageMass = self.tempMassArr[: self.movingAverageMassArrSize]
@@ -88,6 +91,8 @@ class WeighingScaleInterface:
             # self.currMovingAverage = sum(self.movingAverageMassArr)/self.movingAverageMassArrSize
         else:
             self.tempMassArr.append(msg.data)
+        
+        self.prevIsReady = self.isReady
     
     def updateMovingAverageMassArrSize(self, newSize):
         self.movingAverageMassArrSize = newSize
@@ -96,9 +101,15 @@ class WeighingScaleInterface:
     #     return self.movingAverageMassArr
 
     def getCurrMassArr(self):
+        while not (self.prevIsReady == True and self.isReady == True):
+            rospy.logwarn("Waiting for device to be ready...")
+            rospy.sleep(1)
         return self.currMassArr
 
     def getPrevMassArr(self):
+        while not (self.prevIsReady == True and self.isReady == True):
+            rospy.logwarn("Waiting for device to be ready...")
+            rospy.sleep(1)
         return self.prevMassArr
 
     def pushPop(self, list, newElem):
@@ -110,20 +121,23 @@ class WeighingScaleInterface:
         newList.append(newElem)
         return newList         
 
-    def initStaticAverageMassSubber(self, topic = "/staticAverageMass"):
-        topic = "/" + self.ns + topic
-        self.staticAverageMassSubber = rospy.Subscriber(topic, Float64,
-                                                self.updateStaticAverageMassArr,
-                                                callback_args = self)
+    # def initStaticAverageMassSubber(self, topic = "/staticAverageMass"):
+    #     topic = "/" + self.ns + topic
+    #     self.staticAverageMassSubber = rospy.Subscriber(topic, Float64,
+    #                                             self.updateStaticAverageMassArr,
+    #                                             callback_args = self)
 
-    def updateStaticAverageMassArr(msg, self):
-        if self.staticAverageMassArrSize != (len(self.staticAverageMassArr)):
-            # self.prevStaticAverage = self.currStaticAverage
-            # self.currStaticAverage = sum(self.staticAverageMassArr)/self.massArrSize
-            rospy.loginfo("msg is", type(msg))
-            self.staticMassArr.append(Float64(msg))
+    # def updateStaticAverageMassArr(msg, self):
+    #     if self.staticAverageMassArrSize != (len(self.staticAverageMassArr)):
+    #         # self.prevStaticAverage = self.currStaticAverage
+    #         # self.currStaticAverage = sum(self.staticAverageMassArr)/self.massArrSize
+    #         rospy.loginfo("msg is", type(msg))
+    #         self.staticMassArr.append(Float64(msg))
 
     def getWeightChanged(self):
+        while not (self.prevIsReady == True and self.isReady == True):
+            rospy.logwarn("Waiting for device to be ready...")
+            rospy.sleep(1)
         return self.weightChanged
     
     def setWeightChanged(self, newStatus):
